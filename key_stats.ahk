@@ -14,6 +14,7 @@ Global activeAppInfo := Map("path", "", "startTime", 0)
 
 ; --- Initial Setup ---
 InitDatabase()
+LoadFromDatabase() ; Load previous data on startup
 
 ; --- App Hook Setup ---
 WM_SHELLHOOKMESSAGE := DllCall("RegisterWindowMessage", "Str", "SHELLHOOK", "UInt")
@@ -21,7 +22,7 @@ OnMessage(WM_SHELLHOOKMESSAGE, ShellProc)
 DllCall("RegisterShellHookWindow", "Ptr", A_ScriptHwnd)
 SetTimer TrackAppUsage, 1000
 
-; --- Database Initialization ---
+; --- Database Initialization and Loading ---
 InitDatabase() {
     if !FileExist(SQLITE_CLI) {
         MsgBox "错误: sqlite3.exe 未找到。`n请从 sqlite.org 下载并将其放置在脚本目录中。", "初始化失败", 48
@@ -32,6 +33,54 @@ InitDatabase() {
                  . "CREATE TABLE IF NOT EXISTS app_stats (date TEXT NOT NULL, app_name TEXT NOT NULL, launch_count INTEGER NOT NULL, usage_seconds INTEGER NOT NULL, PRIMARY KEY (date, app_name));"
 
     RunWait('"' SQLITE_CLI '" "' DB_FILE '" "' sql_command '"',, "Hide")
+}
+
+LoadFromDatabase() {
+    if !FileExist(SQLITE_CLI) {
+        return ; Silently fail, InitDatabase will have warned
+    }
+
+    currentDate := A_YYYY . "-" . A_MM . "-" . A_DD
+    tmpFile := A_Temp . "\stat_load_tmp.csv"
+
+    ; Load Key Stats
+    sql_keys := "SELECT key_name, count FROM key_stats WHERE date = '" . currentDate . "';"
+    RunWait('cmd /c ""' . SQLITE_CLI . '" -csv "' . DB_FILE . '" "' . sql_keys . '" > "' . tmpFile . '""',, "Hide")
+    
+    if (FileExist(tmpFile)) {
+        Loop Read, tmpFile
+        {
+            try {
+                parts := StrSplit(A_LoopReadLine, ",")
+                if (parts.Length >= 2) {
+                    keyCounts[parts[1]] := Integer(parts[2])
+                }
+            } catch {
+                ; Ignore parsing errors
+            }
+        }
+        FileDelete tmpFile
+    }
+
+    ; Load App Stats
+    sql_apps := "SELECT app_name, launch_count, usage_seconds FROM app_stats WHERE date = '" . currentDate . "';"
+    RunWait('cmd /c ""' . SQLITE_CLI . '" -csv "' . DB_FILE . '" "' . sql_apps . '" > "' . tmpFile . '""',, "Hide")
+
+    if (FileExist(tmpFile)) {
+        Loop Read, tmpFile
+        {
+            try {
+                parts := StrSplit(A_LoopReadLine, ",")
+                if (parts.Length >= 3) {
+                    appCounts[parts[1]] := Integer(parts[2])
+                    appUsageTime[parts[1]] := Integer(parts[3])
+                }
+            } catch {
+                ; Ignore parsing errors
+            }
+        }
+        FileDelete tmpFile
+    }
 }
 
 ; --- App Usage Tracking ---
