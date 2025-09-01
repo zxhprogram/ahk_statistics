@@ -295,8 +295,19 @@ ShellProc(wParam, lParam, *) {
         displayOutput .= "--- 应用统计 ---`n" . appTable
     }
 
-    finalMsgBoxText := saveNotification . "`n`n" . displayOutput
-    MsgBox finalMsgBoxText, "按键与应用统计"
+    finalText := saveNotification . "`n`n" . displayOutput
+    ShowStatsGui(finalText)
+}
+
+; --- GUI Display Function ---
+ShowStatsGui(text) {
+    StatsGui := Gui("+Resize", "按键与应用统计")
+    StatsGui.SetFont("s10", "Consolas") ; Use a monospaced font for alignment
+    StatsGui.Add("Edit", "w780 h550 ReadOnly +VScroll", text)
+    OkButton := StatsGui.Add("Button", "x370 w100 h30 Default", "确定")
+    OkButton.OnEvent("Click", (*) => StatsGui.Destroy())
+    StatsGui.OnEvent("Close", (*) => StatsGui.Destroy())
+    StatsGui.Show()
 }
 
 ; --- Database Saving Function ---
