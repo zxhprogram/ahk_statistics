@@ -7,6 +7,7 @@ Global SQLITE_CLI := A_ScriptDir . "\sqlite3.exe" ; Path to the sqlite3 command-
 
 ; --- Data Storage ---
 Global keyCounts := Map()
+Global mouseCounts := Map() ; For mouse clicks
 Global appCounts := Map()
 Global appUsageTime := Map()
 Global appLastCountedTime := Map()
@@ -30,7 +31,8 @@ InitDatabase() {
     }
     
     sql_command := "CREATE TABLE IF NOT EXISTS key_stats (date TEXT NOT NULL, key_name TEXT NOT NULL, count INTEGER NOT NULL, PRIMARY KEY (date, key_name));" 
-                 . "CREATE TABLE IF NOT EXISTS app_stats (date TEXT NOT NULL, app_name TEXT NOT NULL, launch_count INTEGER NOT NULL, usage_seconds INTEGER NOT NULL, PRIMARY KEY (date, app_name));"
+                 . "CREATE TABLE IF NOT EXISTS app_stats (date TEXT NOT NULL, app_name TEXT NOT NULL, launch_count INTEGER NOT NULL, usage_seconds INTEGER NOT NULL, PRIMARY KEY (date, app_name));" 
+                 . "CREATE TABLE IF NOT EXISTS mouse_stats (date TEXT NOT NULL, button_name TEXT NOT NULL, count INTEGER NOT NULL, PRIMARY KEY (date, button_name));"
 
     RunWait('"' SQLITE_CLI '" "' DB_FILE '" "' sql_command '"',, "Hide")
 }
@@ -46,10 +48,8 @@ LoadFromDatabase() {
     ; Load Key Stats
     sql_keys := "SELECT key_name, count FROM key_stats WHERE date = '" . currentDate . "';"
     RunWait('cmd /c ""' . SQLITE_CLI . '" -csv "' . DB_FILE . '" "' . sql_keys . '" > "' . tmpFile . '""',, "Hide")
-    
     if (FileExist(tmpFile)) {
-        Loop Read, tmpFile
-        {
+        Loop Read, tmpFile {
             try {
                 parts := StrSplit(A_LoopReadLine, ",")
                 if (parts.Length >= 2) {
@@ -65,15 +65,30 @@ LoadFromDatabase() {
     ; Load App Stats
     sql_apps := "SELECT app_name, launch_count, usage_seconds FROM app_stats WHERE date = '" . currentDate . "';"
     RunWait('cmd /c ""' . SQLITE_CLI . '" -csv "' . DB_FILE . '" "' . sql_apps . '" > "' . tmpFile . '""',, "Hide")
-
     if (FileExist(tmpFile)) {
-        Loop Read, tmpFile
-        {
+        Loop Read, tmpFile {
             try {
                 parts := StrSplit(A_LoopReadLine, ",")
                 if (parts.Length >= 3) {
                     appCounts[parts[1]] := Integer(parts[2])
                     appUsageTime[parts[1]] := Integer(parts[3])
+                }
+            } catch {
+                ; Ignore parsing errors
+            }
+        }
+        FileDelete tmpFile
+    }
+
+    ; Load Mouse Stats
+    sql_mouse := "SELECT button_name, count FROM mouse_stats WHERE date = '" . currentDate . "';"
+    RunWait('cmd /c ""' . SQLITE_CLI . '" -csv "' . DB_FILE . '" "' . sql_mouse . '" > "' . tmpFile . '""',, "Hide")
+    if (FileExist(tmpFile)) {
+        Loop Read, tmpFile {
+            try {
+                parts := StrSplit(A_LoopReadLine, ",")
+                if (parts.Length >= 2) {
+                    mouseCounts[parts[1]] := Integer(parts[2])
                 }
             } catch {
                 ; Ignore parsing errors
@@ -122,7 +137,8 @@ UpdateUsage() {
     }
 }
 
-; --- Key Hooking ---
+; --- Input Hooking ---
+; Keyboard
 Loop 26 {
     Hotkey "~*" Chr(A_Index + 96), KeyCounter
 }
@@ -137,7 +153,22 @@ for key in otherKeys {
     Hotkey "~*" key, KeyCounter
 }
 
-; --- Key Counting Function ---
+; Mouse
+mouseButtons := ["LButton", "RButton", "MButton", "XButton1", "XButton2", "WheelUp", "WheelDown"]
+for btn in mouseButtons {
+    Hotkey "~*" btn, MouseCounter
+}
+
+; --- Input Counting Functions ---
+MouseCounter(*) {
+    btnName := SubStr(A_ThisHotkey, 3)
+    if mouseCounts.Has(btnName) {
+        mouseCounts[btnName]++
+    } else {
+        mouseCounts[btnName] := 1
+    }
+}
+
 KeyCounter(*) {
     local baseKey := SubStr(A_ThisHotkey, 3)
     local finalKey := ""
@@ -236,7 +267,7 @@ ShellProc(wParam, lParam, *) {
 {
     UpdateUsage()
 
-    if (keyCounts.Count = 0 && appCounts.Count = 0) {
+    if (keyCounts.Count = 0 && appCounts.Count = 0 && mouseCounts.Count = 0) {
         MsgBox "尚未记录任何按键或应用启动。", "统计信息"
         return
     }
@@ -244,10 +275,18 @@ ShellProc(wParam, lParam, *) {
     saveNotification := SaveToDatabase()
 
     keyTable := BuildTable(keyCounts, "按键", "次数")
+    mouseTable := BuildTable(mouseCounts, "鼠标按键", "次数")
     appTable := BuildAppTable(appCounts, appUsageTime)
+    
     displayOutput := ""
     if (keyTable != "") {
         displayOutput .= "--- 按键统计 ---`n" . keyTable
+    }
+    if (mouseTable != "") {
+        if (displayOutput != "") {
+            displayOutput .= "`n`n"
+        }
+        displayOutput .= "--- 鼠标统计 ---`n" . mouseTable
     }
     if (appTable != "") {
         if (displayOutput != "") {
@@ -273,6 +312,12 @@ SaveToDatabase() {
     for key, count in keyCounts {
         escKey := StrReplace(key, "'", "''")
         sql := "INSERT INTO key_stats (date, key_name, count) VALUES ('" . currentDate . "', '" . escKey . "', " . count . ") ON CONFLICT(date, key_name) DO UPDATE SET count = " . count . ";"
+        RunWait('"' SQLITE_CLI '" "' DB_FILE '" "' sql '"',, "Hide")
+    }
+
+    for btn, count in mouseCounts {
+        escBtn := StrReplace(btn, "'", "''")
+        sql := "INSERT INTO mouse_stats (date, button_name, count) VALUES ('" . currentDate . "', '" . escBtn . "', " . count . ") ON CONFLICT(date, button_name) DO UPDATE SET count = " . count . ";"
         RunWait('"' SQLITE_CLI '" "' DB_FILE '" "' sql '"',, "Hide")
     }
 
