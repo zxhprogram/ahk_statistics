@@ -296,18 +296,211 @@ ShellProc(wParam, lParam, *) {
     }
 
     finalText := saveNotification . "`n`n" . displayOutput
-    ShowStatsGui(finalText)
+    ShowStatsGui(finalText, keyCounts, mouseCounts, appCounts, appUsageTime)
 }
 
 ; --- GUI Display Function ---
-ShowStatsGui(text) {
+ShowStatsGui(text, keyCounts, mouseCounts, appCounts, appUsageTime) {
     StatsGui := Gui("+Resize", "按键与应用统计")
     StatsGui.SetFont("s10", "Consolas") ; Use a monospaced font for alignment
     StatsGui.Add("Edit", "w780 h550 ReadOnly +VScroll", text)
-    OkButton := StatsGui.Add("Button", "x370 w100 h30 Default", "确定")
+
+    ExportJsonButton := StatsGui.Add("Button", "x195 w120 h30", "导出为 JSON")
+    ExportJsonButton.OnEvent("Click", (*) => ExportToJson(keyCounts, mouseCounts, appCounts, appUsageTime))
+
+    OkButton := StatsGui.Add("Button", "x340 w120 h30 Default", "确定")
     OkButton.OnEvent("Click", (*) => StatsGui.Destroy())
+
+    ExportHtmlButton := StatsGui.Add("Button", "x485 w120 h30", "导出为 HTML")
+    ExportHtmlButton.OnEvent("Click", (*) => ExportToHtml(keyCounts, mouseCounts, appCounts, appUsageTime))
+
     StatsGui.OnEvent("Close", (*) => StatsGui.Destroy())
     StatsGui.Show()
+}
+
+; --- Export Functions ---
+; --- Export Functions ---
+ExportToJson(keyCounts, mouseCounts, appCounts, appUsageTime) {
+    currentDate := A_YYYY . "-" . A_MM . "-" . A_DD
+    
+    data := Map()
+    data["date"] := currentDate
+    
+    stats := Map()
+    
+    keyData := Map()
+    for key, count in keyCounts {
+        keyData[key] := count
+    }
+    stats["keys"] := keyData
+    
+    mouseData := Map()
+    for btn, count in mouseCounts {
+        mouseData[btn] := count
+    }
+    stats["mouse"] := mouseData
+    
+    appData := []
+    for appName, launchCount in appCounts {
+        usageSec := appUsageTime.Has(appName) ? appUsageTime[appName] : 0
+        appEntry := Map("name", appName, "launchCount", launchCount, "usageSeconds", usageSec)
+        appData.Push(appEntry)
+    }
+    stats["applications"] := appData
+    
+    data["statistics"] := stats
+    
+    jsonString := MapToJson(data)
+    
+filePath := FileSelect("S", A_ScriptDir . "\stats_" . currentDate . ".json", "Save As", "JSON Files (*.json)")
+    if (filePath = "") {
+        return
+    }
+    
+    try {
+        file := FileOpen(filePath, "w", "UTF-8")
+        file.Write(jsonString)
+        file.Close()
+        MsgBox "数据已成功导出到 " . filePath, "导出成功", 64
+    } catch {
+        MsgBox "导出文件时出错。", "错误", 16
+    }
+}
+
+MapToJson(map) {
+    json := "{"
+    first := true
+    for k, v in map {
+        if (!first) {
+            json .= ","
+        }
+        json .= Chr(34) . EscapeJsonString(k) . Chr(34) . ":" . ValueToJson(v)
+        first := false
+    }
+    json .= "}"
+    return json
+}
+
+ArrayToJson(arr) {
+    json := "["
+    first := true
+    for _, v in arr {
+        if (!first) {
+            json .= ","
+        }
+        json .= ValueToJson(v)
+        first := false
+    }
+    json .= "]"
+    return json
+}
+
+ValueToJson(val) {
+    if (IsObject(val)) {
+        if (val.Has(1) || val.Length = 0) { ; Check if it's an array-like map or empty array
+            return ArrayToJson(val)
+        } else {
+            return MapToJson(val)
+        }
+    } else if (IsInteger(val) || IsFloat(val)) {
+        return val
+    } else {
+        return Chr(34) . EscapeJsonString(String(val)) . Chr(34)
+    }
+}
+
+EscapeJsonString(str) {
+    str := StrReplace(str, "\", "\\")
+	str := StrReplace(str, Chr(34), "\" . Chr(34))
+
+    str := StrReplace(str, "/", "\/")
+    str := StrReplace(str, "`b", "\b")
+    str := StrReplace(str, "`f", "\f")
+    str := StrReplace(str, "`n", "\n")
+    str := StrReplace(str, "`r", "\r")
+    str := StrReplace(str, "`t", "\t")
+    return str
+}
+
+ExportToHtml(keyCounts, mouseCounts, appCounts, appUsageTime) {
+    currentDate := A_YYYY . "-" . A_MM . "-" . A_DD
+    
+    html := ""
+    html .= BuildHtmlHeader(currentDate)
+    html .= BuildHtmlBody(keyCounts, mouseCounts, appCounts, appUsageTime)
+    html .= BuildHtmlFooter()
+
+filePath := FileSelect("S", A_ScriptDir . "\stats_report_" . currentDate . ".html", "Save As", "HTML Files (*.html)")
+    if (filePath = "") {
+        return
+    }
+    
+    try {
+        file := FileOpen(filePath, "w", "UTF-8")
+        file.Write(html)
+        file.Close()
+        MsgBox "报告已成功导出到 " . filePath, "导出成功", 64
+    } catch {
+        MsgBox "导出文件时出错。", "错误", 16
+    }
+}
+
+
+
+BuildHtmlHeader(date) {
+    return (
+"rwa"
+)
+}
+
+BuildHtmlFooter() {
+    return (
+    "hello"
+    )
+}
+
+BuildHtmlBody(keyCounts, mouseCounts, appCounts, appUsageTime) {
+    body := ""
+
+    ; Key Stats
+    if (keyCounts.Count > 0) {
+        body .= "<h2>按键统计</h2><table><tr><th>按键</th><th>次数</th></tr>"
+        for key, count in keyCounts {
+            body .= "<tr><td>" . EscapeHtml(key) . "</td><td>" . count . "</td></tr>"
+        }
+        body .= "</table>"
+    }
+
+    ; Mouse Stats
+    if (mouseCounts.Count > 0) {
+        body .= "<h2>鼠标统计</h2><table><tr><th>按钮</th><th>次数</th></tr>"
+        for btn, count in mouseCounts {
+            body .= "<tr><td>" . EscapeHtml(btn) . "</td><td>" . count . "</td></tr>"
+        }
+        body .= "</table>"
+    }
+
+    ; App Stats
+    if (appCounts.Count > 0) {
+        body .= "<h2>应用程序统计</h2><table><tr><th>程序</th><th>启动次数</th><th>使用时长</th></tr>"
+        for appName, launchCount in appCounts {
+            usageSec := appUsageTime.Has(appName) ? appUsageTime[appName] : 0
+            usageFormatted := FormatUsageTime(usageSec)
+            body .= "<tr><td>" . EscapeHtml(appName) . "</td><td>" . launchCount . "</td><td>" . usageFormatted . "</td></tr>"
+        }
+        body .= "</table>"
+    }
+    
+    return body
+}
+
+EscapeHtml(str) {
+    str := StrReplace(str, "&", "&amp;")
+    str := StrReplace(str, "<", "&lt;")
+    str := StrReplace(str, ">", "&gt;")
+    str := StrReplace(str, Chr(34), "&quot;")
+    str := StrReplace(str, "'", "&#39;")
+    return str
 }
 
 ; --- Database Saving Function ---
@@ -318,28 +511,34 @@ SaveToDatabase() {
     
     currentDate := A_YYYY . "-" . A_MM . "-" . A_DD
     
-    RunWait('"' SQLITE_CLI '" "' DB_FILE '" "BEGIN;"',, "Hide")
+    RunWait('"" . SQLITE_CLI . """ """ . DB_FILE . """ "BEGIN;"',, "Hide")
 
     for key, count in keyCounts {
         escKey := StrReplace(key, "'", "''")
-        sql := "INSERT INTO key_stats (date, key_name, count) VALUES ('" . currentDate . "', '" . escKey . "', " . count . ") ON CONFLICT(date, key_name) DO UPDATE SET count = " . count . ";"
-        RunWait('"' SQLITE_CLI '" "' DB_FILE '" "' sql '"',, "Hide")
+; sql := "INSERT INTO key_stats (date, key_name, count) VALUES (""" . currentDate . """, """ . escKey . """, " . count . ") ON CONFLICT(date, key_name) DO UPDATE SET count = " . count . ";"
+		sql_template := "INSERT INTO key_stats (date, key_name, count) VALUES ('{}', '{}', {}) ON CONFLICT(date, key_name) DO UPDATE SET count = {};"
+sql := Format(sql_template, currentDate, escKey, count, count)
+        RunWait('"" . SQLITE_CLI . """ """ . DB_FILE . """ """ . sql . """',, "Hide")
     }
 
     for btn, count in mouseCounts {
         escBtn := StrReplace(btn, "'", "''")
-        sql := "INSERT INTO mouse_stats (date, button_name, count) VALUES ('" . currentDate . "', '" . escBtn . "', " . count . ") ON CONFLICT(date, button_name) DO UPDATE SET count = " . count . ";"
-        RunWait('"' SQLITE_CLI '" "' DB_FILE '" "' sql '"',, "Hide")
+;sql := "INSERT INTO mouse_stats (date, button_name, count) VALUES (""" . currentDate . """, """ . escBtn . """, " . count . ") ON CONFLICT(date, button_name) DO UPDATE SET count = " . count . ";"
+        sql_template := "INSERT INTO mouse_stats (date, button_name, count) VALUES ('{}', '{}', {}) ON CONFLICT(date, button_name) DO UPDATE SET count = {};"
+		sql := Format(sql_template, currentDate, escBtn, count, count)
+		RunWait('"" . SQLITE_CLI . """ """ . DB_FILE . """ """ . sql . """',, "Hide")
     }
 
     for appName, launchCount in appCounts {
         usage := appUsageTime.Has(appName) ? appUsageTime[appName] : 0
         escAppName := StrReplace(appName, "'", "''")
-        sql := "INSERT INTO app_stats (date, app_name, launch_count, usage_seconds) VALUES ('" . currentDate . "', '" . escAppName . "', " . launchCount . ", " . usage . ") ON CONFLICT(date, app_name) DO UPDATE SET launch_count = " . launchCount . ", usage_seconds = " . usage . ";"
-        RunWait('"' SQLITE_CLI '" "' DB_FILE '" "' sql '"',, "Hide")
+;sql := "INSERT INTO app_stats (date, app_name, launch_count, usage_seconds) VALUES (""" . currentDate . """, """ . escAppName . """, " . launchCount . ", " . usage . ") ON CONFLICT(date, app_name) DO UPDATE SET launch_count = " . launchCount . ", usage_seconds = " . usage . ";"
+        sql_template := "INSERT INTO app_stats (date, app_name, launch_count, usage_seconds) VALUES ('{}', '{}', {}, {}) ON CONFLICT(date, app_name) DO UPDATE SET launch_count = {}, usage_seconds = {};"
+		sql := Format(sql_template, currentDate, escAppName, launchCount, usage, launchCount, usage)
+		RunWait('"" . SQLITE_CLI . """ """ . DB_FILE . """ """ . sql . """',, "Hide")
     }
     
-    RunWait('"' SQLITE_CLI '" "' DB_FILE '" "COMMIT;"',, "Hide")
+    RunWait('"" . SQLITE_CLI . """ """ . DB_FILE . """ "COMMIT;"',, "Hide")
 
     return "统计信息已保存到数据库 " . DB_FILE
 }
